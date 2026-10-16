@@ -1,6 +1,7 @@
 package com.trackalarm.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -19,8 +20,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.trackalarm.app.service.LocationTrackingService
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Marker
 
 class MainActivity : ComponentActivity() {
 
@@ -59,7 +68,6 @@ class MainActivity : ComponentActivity() {
                             if (hasLocationPermission()) {
                                 startJourney(lat, lon, radius)
                             } else {
-                                // Store data and wait for permission result
                                 pendingLat = lat
                                 pendingLon = lon
                                 pendingRadius = radius
@@ -118,54 +126,87 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
-    var destName by remember { mutableStateOf("") }
-    var latText by remember { mutableStateOf("") }
-    var lonText by remember { mutableStateOf("") }
+    var destName by remember { mutableStateOf("Map Destination") }
+    var latText by remember { mutableStateOf("22.3072") }
+    var lonText by remember { mutableStateOf("73.1812") }
     var selectedRadius by remember { mutableStateOf(1000f) }
     var isRunning by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = "Track Alarm",
-            fontSize = 32.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedTextField(
-            value = destName,
-            onValueChange = { destName = it },
-            label = { Text("Destination Name") },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isRunning
+        // OSMDroid Map Integration
+        AndroidView(
+            factory = { ctx ->
+                Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                MapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    controller.setZoom(12.0)
+                    controller.setCenter(GeoPoint(22.3072, 73.1812))
+
+                    var currentMarker: Marker? = null
+
+                    val mapEventsReceiver = object : MapEventsReceiver {
+                        override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                            if (!isRunning) {
+                                latText = p.latitude.toString()
+                                lonText = p.longitude.toString()
+                                
+                                if (currentMarker == null) {
+                                    currentMarker = Marker(this@apply).apply {
+                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    }
+                                    overlays.add(currentMarker)
+                                }
+                                currentMarker?.position = p
+                                invalidate()
+                            }
+                            return true
+                        }
+                        override fun longPressHelper(p: GeoPoint): Boolean = false
+                    }
+                    overlays.add(MapEventsOverlay(mapEventsReceiver))
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         )
-        Spacer(modifier = Modifier.height(12.dp))
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = latText,
                 onValueChange = { latText = it },
-                label = { Text("Latitude") },
+                label = { Text("Lat") },
                 modifier = Modifier.weight(1f),
-                enabled = !isRunning
+                enabled = !isRunning,
+                singleLine = true
             )
             OutlinedTextField(
                 value = lonText,
                 onValueChange = { lonText = it },
-                label = { Text("Longitude") },
+                label = { Text("Lon") },
                 modifier = Modifier.weight(1f),
-                enabled = !isRunning
+                enabled = !isRunning,
+                singleLine = true
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text("Alert Radius: ${selectedRadius.toInt()} meters", fontWeight = FontWeight.SemiBold)
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -178,7 +219,7 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (!isRunning) {
             Button(
@@ -186,8 +227,8 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
                     val lat = latText.toDoubleOrNull()
                     val lon = lonText.toDoubleOrNull()
                     
-                    if (destName.isBlank() || lat == null || lon == null) {
-                        Toast.makeText(context, "Please enter a valid destination, latitude, and longitude.", Toast.LENGTH_SHORT).show()
+                    if (lat == null || lon == null) {
+                        Toast.makeText(context, "Please select a point on the map.", Toast.LENGTH_SHORT).show()
                     } else {
                         onStart(lat, lon, selectedRadius)
                         isRunning = true
