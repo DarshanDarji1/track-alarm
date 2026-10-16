@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,8 +30,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Ask for permissions immediately on app launch
         askForPermissions()
 
         setContent {
@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         onStart = { lat, lon, radius -> 
-                            askForPermissions() // Double-check when they press Start
+                            askForPermissions() 
                             startJourney(lat, lon, radius) 
                         },
                         onStop = { stopJourney() }
@@ -55,12 +55,10 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-        // Only ask for notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         
-        // Filter out permissions that are already granted
         val notGranted = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -90,9 +88,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
-    var destName by remember { mutableStateOf("Vadodara Station") }
-    var latText by remember { mutableStateOf("22.3072") }
-    var lonText by remember { mutableStateOf("73.1812") }
+    val context = LocalContext.current
+    var destName by remember { mutableStateOf("") }
+    var latText by remember { mutableStateOf("") }
+    var lonText by remember { mutableStateOf("") }
     var selectedRadius by remember { mutableStateOf(1000f) }
     var isRunning by remember { mutableStateOf(false) }
 
@@ -155,10 +154,16 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
         if (!isRunning) {
             Button(
                 onClick = {
-                    val lat = latText.toDoubleOrNull() ?: 22.3072
-                    val lon = lonText.toDoubleOrNull() ?: 73.1812
-                    onStart(lat, lon, selectedRadius)
-                    isRunning = true
+                    val lat = latText.toDoubleOrNull()
+                    val lon = lonText.toDoubleOrNull()
+                    
+                    // Input Validation Check
+                    if (destName.isBlank() || lat == null || lon == null) {
+                        Toast.makeText(context, "Please enter a valid destination, latitude, and longitude.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onStart(lat, lon, selectedRadius)
+                        isRunning = true
+                    }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp)
