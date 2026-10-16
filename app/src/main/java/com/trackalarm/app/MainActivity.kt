@@ -24,9 +24,25 @@ import com.trackalarm.app.service.LocationTrackingService
 
 class MainActivity : ComponentActivity() {
 
+    private var pendingLat: Double = 0.0
+    private var pendingLon: Double = 0.0
+    private var pendingRadius: Float = 0f
+    private var isWaitingForPermission = false
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
+    ) { permissions ->
+        val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                              permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        
+        if (locationGranted && isWaitingForPermission) {
+            isWaitingForPermission = false
+            startJourney(pendingLat, pendingLon, pendingRadius)
+        } else if (!locationGranted && isWaitingForPermission) {
+            isWaitingForPermission = false
+            Toast.makeText(this, "Location permission is required to track the alarm!", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,14 +56,27 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         onStart = { lat, lon, radius -> 
-                            askForPermissions() 
-                            startJourney(lat, lon, radius) 
+                            if (hasLocationPermission()) {
+                                startJourney(lat, lon, radius)
+                            } else {
+                                // Store data and wait for permission result
+                                pendingLat = lat
+                                pendingLon = lon
+                                pendingRadius = radius
+                                isWaitingForPermission = true
+                                askForPermissions()
+                            }
                         },
                         onStop = { stopJourney() }
                     )
                 }
             }
         }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+               ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun askForPermissions() {
@@ -157,7 +186,6 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
                     val lat = latText.toDoubleOrNull()
                     val lon = lonText.toDoubleOrNull()
                     
-                    // Input Validation Check
                     if (destName.isBlank() || lat == null || lon == null) {
                         Toast.makeText(context, "Please enter a valid destination, latitude, and longitude.", Toast.LENGTH_SHORT).show()
                     } else {
