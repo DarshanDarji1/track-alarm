@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -30,6 +31,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 class MainActivity : ComponentActivity() {
 
@@ -83,8 +87,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-               ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun askForPermissions() {
@@ -126,10 +129,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
     val context = LocalContext.current
-    var destName by remember { mutableStateOf("Map Destination") }
-    var latText by remember { mutableStateOf("22.3072") }
-    var lonText by remember { mutableStateOf("73.1812") }
-    var selectedRadius by remember { mutableStateOf(1000f) }
+    var destName by remember { mutableStateOf("My Destination") }
+    var latText by remember { mutableStateOf("") }
+    var lonText by remember { mutableStateOf("") }
+    var selectedRadius by remember { mutableStateOf(1000f) } // Default 1km
     var isRunning by remember { mutableStateOf(false) }
 
     Column(
@@ -146,32 +149,27 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // OSMDroid Map Integration
+        // Advanced Interactive Map
         AndroidView(
             factory = { ctx ->
                 Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
                 MapView(ctx).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
-                    controller.setZoom(12.0)
-                    controller.setCenter(GeoPoint(22.3072, 73.1812))
+                    controller.setZoom(15.0)
 
-                    var currentMarker: Marker? = null
+                    // 1. Show the user's live moving location (Blue Dot)
+                    val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this)
+                    locationOverlay.enableMyLocation()
+                    locationOverlay.enableFollowLocation() // Centers map on user automatically
+                    overlays.add(locationOverlay)
 
+                    // 2. Listen for screen taps to drop destination pin
                     val mapEventsReceiver = object : MapEventsReceiver {
                         override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
                             if (!isRunning) {
                                 latText = p.latitude.toString()
                                 lonText = p.longitude.toString()
-                                
-                                if (currentMarker == null) {
-                                    currentMarker = Marker(this@apply).apply {
-                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                    }
-                                    overlays.add(currentMarker)
-                                }
-                                currentMarker?.position = p
-                                invalidate()
                             }
                             return true
                         }
@@ -180,41 +178,52 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
                     overlays.add(MapEventsOverlay(mapEventsReceiver))
                 }
             },
+            update = { mapView ->
+                val lat = latText.toDoubleOrNull()
+                val lon = lonText.toDoubleOrNull()
+
+                // Clear old destination markers and circles, but keep the live GPS blue dot
+                mapView.overlays.removeAll { it is Marker || it is Polygon }
+
+                if (lat != null && lon != null) {
+                    val targetPoint = GeoPoint(lat, lon)
+                    
+                    // 3. Draw the visual radius boundary (Transparent Red Circle)
+                    val radiusCircle = Polygon().apply {
+                        points = Polygon.pointsAsCircle(targetPoint, selectedRadius.toDouble())
+                        fillColor = Color.argb(40, 255, 0, 0) // Semi-transparent red
+                        strokeColor = Color.RED
+                        strokeWidth = 2f
+                    }
+                    mapView.overlays.add(radiusCircle)
+
+                    // 4. Draw the destination pin
+                    val marker = Marker(mapView).apply {
+                        position = targetPoint
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        title = "Alarm Trigger Boundary"
+                    }
+                    mapView.overlays.add(marker)
+
+                    mapView.invalidate()
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = latText,
-                onValueChange = { latText = it },
-                label = { Text("Lat") },
-                modifier = Modifier.weight(1f),
-                enabled = !isRunning,
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = lonText,
-                onValueChange = { lonText = it },
-                label = { Text("Lon") },
-                modifier = Modifier.weight(1f),
-                enabled = !isRunning,
-                singleLine = true
-            )
-        }
-
         Spacer(modifier = Modifier.height(12.dp))
-        Text("Alert Radius: ${selectedRadius.toInt()} meters", fontWeight = FontWeight.SemiBold)
         
+        Text("Alert Radius: ${selectedRadius.toInt() / 1000} km", fontWeight = FontWeight.SemiBold)
+        
+        // Radius Selector (1km, 2km, 5km, 10km)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf(500f, 1000f, 2000f, 5000f).forEach { r ->
+            listOf(1000f, 2000f, 5000f, 10000f).forEach { r ->
                 FilterChip(
                     selected = selectedRadius == r,
                     onClick = { if (!isRunning) selectedRadius = r },
-                    label = { Text("${r.toInt()}m") }
+                    label = { Text("${r.toInt() / 1000}km") }
                 )
             }
         }
@@ -228,7 +237,7 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
                     val lon = lonText.toDoubleOrNull()
                     
                     if (lat == null || lon == null) {
-                        Toast.makeText(context, "Please select a point on the map.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Please tap on the map to set a destination.", Toast.LENGTH_SHORT).show()
                     } else {
                         onStart(lat, lon, selectedRadius)
                         isRunning = true
