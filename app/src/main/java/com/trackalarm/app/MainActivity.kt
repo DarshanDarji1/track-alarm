@@ -2,7 +2,6 @@ package com.trackalarm.app
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -14,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,15 +20,13 @@ import com.trackalarm.app.service.LocationTrackingService
 
 class MainActivity : ComponentActivity() {
 
-    private val requestPermissionLauncher = registerForActivityResult(
+    private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        // Handle permissions granted/denied if needed
-    }
+    ) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestAllPermissions()
+        requestPermissions()
 
         setContent {
             MaterialTheme {
@@ -39,19 +35,15 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainScreen(
-                        onStartJourney = { lat, lon, radius ->
-                            startJourneyService(lat, lon, radius)
-                        },
-                        onStopJourney = {
-                            stopJourneyService()
-                        }
+                        onStart = { lat, lon, radius -> startJourney(lat, lon, radius) },
+                        onStop = { stopJourney() }
                     )
                 }
             }
         }
     }
 
-    private fun requestAllPermissions() {
+    private fun requestPermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -63,10 +55,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             permissions.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
-    private fun startJourneyService(lat: Double, lon: Double, radius: Float) {
+    private fun startJourney(lat: Double, lon: Double, radius: Float) {
         val intent = Intent(this, LocationTrackingService::class.java).apply {
             putExtra("DEST_LAT", lat)
             putExtra("DEST_LON", lon)
@@ -79,30 +71,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopJourneyService() {
-        val intent = Intent(this, LocationTrackingService::class.java)
-        stopService(intent)
+    private fun stopJourney() {
+        stopService(Intent(this, LocationTrackingService::class.java))
     }
 }
 
 @Composable
-fun MainScreen(onStartJourney: (Double, Double, Float) -> Unit, onStopJourney: () -> Unit) {
+fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
     var destName by remember { mutableStateOf("Vadodara Station") }
     var latText by remember { mutableStateOf("22.3072") }
     var lonText by remember { mutableStateOf("73.1812") }
-    var selectedRadius by remember { mutableStateOf(1000f) } // Default 1 km
-    var isJourneyActive by remember { mutableStateOf(false) }
+    var selectedRadius by remember { mutableStateOf(1000f) }
+    var isRunning by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
             text = "Travel Alarm",
-            fontSize = 30.sp,
+            fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
@@ -113,7 +104,7 @@ fun MainScreen(onStartJourney: (Double, Double, Float) -> Unit, onStopJourney: (
             onValueChange = { destName = it },
             label = { Text("Destination Name") },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isJourneyActive
+            enabled = !isRunning
         )
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -123,39 +114,39 @@ fun MainScreen(onStartJourney: (Double, Double, Float) -> Unit, onStopJourney: (
                 onValueChange = { latText = it },
                 label = { Text("Latitude") },
                 modifier = Modifier.weight(1f),
-                enabled = !isJourneyActive
+                enabled = !isRunning
             )
             OutlinedTextField(
                 value = lonText,
                 onValueChange = { lonText = it },
                 label = { Text("Longitude") },
                 modifier = Modifier.weight(1f),
-                enabled = !isJourneyActive
+                enabled = !isRunning
             )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Alert Radius: ${selectedRadius.toInt()} meters", fontWeight = FontWeight.Medium)
+        Text("Alert Radius: ${selectedRadius.toInt()} meters", fontWeight = FontWeight.SemiBold)
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf(500f, 1000f, 2000f, 5000f).forEach { radius ->
+            listOf(500f, 1000f, 2000f, 5000f).forEach { r ->
                 FilterChip(
-                    selected = selectedRadius == radius,
-                    onClick = { if (!isJourneyActive) selectedRadius = radius },
-                    label = { Text("${radius.toInt()}m") }
+                    selected = selectedRadius == r,
+                    onClick = { if (!isRunning) selectedRadius = r },
+                    label = { Text("${r.toInt()}m") }
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        if (!isJourneyActive) {
+        if (!isRunning) {
             Button(
                 onClick = {
                     val lat = latText.toDoubleOrNull() ?: 22.3072
                     val lon = lonText.toDoubleOrNull() ?: 73.1812
-                    onStartJourney(lat, lon, selectedRadius)
-                    isJourneyActive = true
+                    onStart(lat, lon, selectedRadius)
+                    isRunning = true
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -165,8 +156,8 @@ fun MainScreen(onStartJourney: (Double, Double, Float) -> Unit, onStopJourney: (
         } else {
             Button(
                 onClick = {
-                    onStopJourney()
-                    isJourneyActive = false
+                    onStop()
+                    isRunning = false
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 modifier = Modifier.fillMaxWidth().height(56.dp),
