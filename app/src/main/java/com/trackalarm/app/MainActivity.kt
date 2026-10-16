@@ -2,6 +2,7 @@ package com.trackalarm.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.trackalarm.app.service.LocationTrackingService
 
 class MainActivity : ComponentActivity() {
@@ -26,7 +28,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestPermissions()
+        
+        // Ask for permissions immediately on app launch
+        askForPermissions()
 
         setContent {
             MaterialTheme {
@@ -35,7 +39,10 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainScreen(
-                        onStart = { lat, lon, radius -> startJourney(lat, lon, radius) },
+                        onStart = { lat, lon, radius -> 
+                            askForPermissions() // Double-check when they press Start
+                            startJourney(lat, lon, radius) 
+                        },
                         onStop = { stopJourney() }
                     )
                 }
@@ -43,19 +50,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestPermissions() {
+    private fun askForPermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.VIBRATE
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        // Only ask for notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            permissions.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        
+        // Filter out permissions that are already granted
+        val notGranted = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        permissionLauncher.launch(permissions.toTypedArray())
+        
+        if (notGranted.isNotEmpty()) {
+            permissionLauncher.launch(notGranted.toTypedArray())
+        }
     }
 
     private fun startJourney(lat: Double, lon: Double, radius: Float) {
@@ -92,7 +104,7 @@ fun MainScreen(onStart: (Double, Double, Float) -> Unit, onStop: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Travel Alarm",
+            text = "Track Alarm",
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
