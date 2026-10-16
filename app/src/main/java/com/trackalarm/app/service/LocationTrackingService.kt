@@ -14,7 +14,6 @@ import com.trackalarm.app.alarm.AlarmPlayer
 
 class LocationTrackingService : Service() {
 
-    private lateinit import: FusedLocationProviderClient // Note: standard client below
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private lateinit var alarmPlayer: AlarmPlayer
@@ -98,7 +97,7 @@ class LocationTrackingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Travel Alarm Running")
             .setContentText(message)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setOngoing(true)
             .build()
     }
